@@ -39,17 +39,35 @@ app.get("/proxy", async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
-    if (contentType.includes("application/vnd.apple.mpegurl")) {
+    if (targetUrl.endsWith(".m3u8")) {
+      let body = await response.text();
+
+      // Reescreve URLs absolutas
+      body = body.replace(
+        /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
+        (match) => `/proxy?url=${encodeURIComponent(match)}`
+      );
+
+      // Reescreve URLs relativas
+      body = body.replace(
+        /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
+        (match) => {
+          const absoluteUrl = new URL(match, targetUrl).toString();
+          return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+        }
+      );
+
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-      return res.status(200).send(await response.text());
+      return res.status(200).send(body);
     }
 
-    if (contentType.includes("video/MP2T")) {
+    // TS puro
+    if (contentType.includes("video/MP2T") || targetUrl.endsWith(".ts")) {
       res.setHeader("Content-Type", "video/MP2T");
       return res.status(200).send(Buffer.from(await response.arrayBuffer()));
     }
 
-    // Fallback para qualquer outro tipo
+    // fallback
     res.setHeader("Content-Type", contentType);
     return res.status(200).send(await response.buffer());
   } catch (err) {
