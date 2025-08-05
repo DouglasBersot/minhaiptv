@@ -58,20 +58,20 @@ app.get("/proxy", async (req, res) => {
     if (isM3U8) {
       let body = await response.text();
 
-      // Substitui URLs absolutas .ts/.m3u8 para passar pelo proxy
-      body = body.replace(
-        /((?:https?):\/\/[^\s'"()]+?\.(?:ts|m3u8)(\?[^\s'"()]*)?)/g,
-        (match) => `/proxy?url=${encodeURIComponent(match)}`
-      );
+      // Substitui URLs absolutas (https://...) por chamadas via proxy
+body = body.replace(
+  /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
+  (match) => `/proxy?url=${encodeURIComponent(match)}`
+);
 
-      // Substitui URLs relativas
-      body = body.replace(
-        /^(?!#)(.*?\.(ts|m3u8)(\?[^\s'"()]*)?)$/gm,
-        (match) => {
-          const newUrl = new URL(match, targetUrl).toString();
-          return `/proxy?url=${encodeURIComponent(newUrl)}`;
-        }
-      );
+// Substitui URLs relativas SEM quebrar a playlist
+body = body.replace(
+  /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
+  (match) => {
+    const absoluteUrl = new URL(match, targetUrl).toString();
+    return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+  }
+);
 
       // Salva no cache
       cache.set(targetUrl, {
