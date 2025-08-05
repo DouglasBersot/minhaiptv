@@ -6,7 +6,6 @@ import https from "https";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Agente com keep-alive
 const agent = (url) =>
   url.startsWith("https")
     ? new https.Agent({ keepAlive: true })
@@ -25,8 +24,6 @@ app.get("/proxy", async (req, res) => {
       Accept: "*/*",
     };
 
-    const isM3U8 = targetUrl.endsWith(".m3u8");
-
     const response = await fetch(targetUrl, {
       headers,
       agent: agent(targetUrl),
@@ -38,37 +35,23 @@ app.get("/proxy", async (req, res) => {
         .send(`Erro ao buscar URL: ${response.status}`);
     }
 
-    if (isM3U8) {
-      let body = await response.text();
-
-      // Substitui URLs absolutas por proxy
-      body = body.replace(
-        /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
-        (match) => `/proxy?url=${encodeURIComponent(match)}`
-      );
-
-      // Substitui URLs relativas sem quebrar a playlist
-      body = body.replace(
-        /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
-        (match) => {
-          const absoluteUrl = new URL(match, targetUrl).toString();
-          return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-        }
-      );
-
-      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      return res.status(200).send(body);
-    }
-
-    // Resposta para arquivos .ts
-    const buffer = await response.arrayBuffer();
-
-    res.setHeader("Content-Type", "video/MP2T");
+    const contentType = response.headers.get("content-type") || "";
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    return res.status(200).send(Buffer.from(buffer));
+
+    if (contentType.includes("application/vnd.apple.mpegurl")) {
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+      return res.status(200).send(await response.text());
+    }
+
+    if (contentType.includes("video/MP2T")) {
+      res.setHeader("Content-Type", "video/MP2T");
+      return res.status(200).send(Buffer.from(await response.arrayBuffer()));
+    }
+
+    // Fallback para qualquer outro tipo
+    res.setHeader("Content-Type", contentType);
+    return res.status(200).send(await response.buffer());
   } catch (err) {
     console.error(err);
     return res.status(500).send("Erro interno no proxy");
