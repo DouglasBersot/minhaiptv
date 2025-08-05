@@ -19,8 +19,8 @@ app.get("/proxy", async (req, res) => {
     const headers = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
-      Referer: "http://webtv-new.iptvsmarters.com/",
-      Origin: "http://webtv-new.iptvsmarters.com",
+      Referer: targetUrl,
+      Origin: new URL(targetUrl).origin,
       Accept: "*/*",
     };
 
@@ -43,22 +43,24 @@ app.get("/proxy", async (req, res) => {
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
+    // 🎯 Reescreve playlist M3U8
     if (targetUrl.endsWith(".m3u8")) {
       let body = await response.text();
+      const base = new URL(targetUrl);
 
-      // 🔄 Absolutas → proxy
+      // 1. URLs relativas (ex: /hls/xxxx.ts?token=...)
+      body = body.replace(
+        /^(\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
+        (match) => {
+          const absoluteUrl = `${base.origin}${match}`;
+          return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+        }
+      );
+
+      // 2. URLs absolutas (só por precaução)
       body = body.replace(
         /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
         (match) => `/proxy?url=${encodeURIComponent(match)}`
-      );
-
-      // 🔄 Relativas → proxy com base na URL
-      body = body.replace(
-        /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
-        (match) => {
-          const absoluteUrl = new URL(match, targetUrl).toString();
-          return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-        }
       );
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
