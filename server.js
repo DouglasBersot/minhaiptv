@@ -31,9 +31,19 @@ app.get("/proxy", async (req, res) => {
       let body = await response.text();
 
       // Substitui links .ts e .m3u8 dentro do playlist para passar pelo proxy
+      // Corrige URLs absolutas (http/https)
       body = body.replace(
-        /((?:http|https):\/\/[^\s'"()]+?\.(?:ts|m3u8))/g,
+        /((?:https?):\/\/[^\s'"()]+?\.(?:ts|m3u8)(\?[^\s'"()]*)?)/g,
         (match) => `/proxy?url=${encodeURIComponent(match)}`
+      );
+      
+      // Corrige URLs relativas ou root-based
+      body = body.replace(
+        /^(?!#)(.*?\.(ts|m3u8)(\?[^\s'"()]*)?)$/gm,
+        (match) => {
+          const newUrl = new URL(match, targetUrl).toString();
+          return `/proxy?url=${encodeURIComponent(newUrl)}`;
+        }
       );
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
