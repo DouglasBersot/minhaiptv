@@ -1,16 +1,25 @@
 import express from "express";
 import fetch from "node-fetch";
+import http from "http";
+import https from "https";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Proxy básico para requisições .m3u8 e .ts
+// Agente com keep-alive
+const agent = (url) =>
+  url.startsWith("https")
+    ? new https.Agent({ keepAlive: true })
+    : new http.Agent({ keepAlive: true });
+
+// Cache leve em memória
+const cache = new Map();
+
 app.get("/proxy", async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send("URL não informada");
 
   try {
-    // Cabeçalhos para simular navegador e origem válida
     const headers = {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0",
@@ -19,25 +28,43 @@ app.get("/proxy", async (req, res) => {
       Accept: "*/*",
     };
 
-    const response = await fetch(targetUrl, { headers });
+    const isM3U8 = targetUrl.endsWith(".m3u8");
 
-    if (!response.ok)
+    // CACHE para .m3u8 (5 segundos)
+    if (isM3U8) {
+      const cached = cache.get(targetUrl);
+      const now = Date.now();
+
+      if (cached && now - cached.timestamp < 5000) {
+        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        return res.status(200).send(cached.body);
+      }
+    }
+
+    const response = await fetch(targetUrl, {
+      headers,
+      agent: agent(targetUrl),
+    });
+
+    if (!response.ok) {
       return res
         .status(response.status)
         .send(`Erro ao buscar URL: ${response.status}`);
+    }
 
-    // Para .m3u8, podemos ajustar URLs das ts para passar pelo proxy
-    if (targetUrl.endsWith(".m3u8")) {
+    // Manipula playlist .m3u8
+    if (isM3U8) {
       let body = await response.text();
 
-      // Substitui links .ts e .m3u8 dentro do playlist para passar pelo proxy
-      // Corrige URLs absolutas (http/https)
+      // Substitui URLs absolutas .ts/.m3u8 para passar pelo proxy
       body = body.replace(
         /((?:https?):\/\/[^\s'"()]+?\.(?:ts|m3u8)(\?[^\s'"()]*)?)/g,
         (match) => `/proxy?url=${encodeURIComponent(match)}`
       );
-      
-      // Corrige URLs relativas ou root-based
+
+      // Substitui URLs relativas
       body = body.replace(
         /^(?!#)(.*?\.(ts|m3u8)(\?[^\s'"()]*)?)$/gm,
         (match) => {
@@ -46,13 +73,19 @@ app.get("/proxy", async (req, res) => {
         }
       );
 
+      // Salva no cache
+      cache.set(targetUrl, {
+        body,
+        timestamp: Date.now(),
+      });
+
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       return res.status(200).send(body);
     }
 
-    // Para .ts retorna o buffer puro com headers
+    // Resposta para arquivos .ts
     const buffer = await response.arrayBuffer();
 
     res.setHeader("Content-Type", "video/MP2T");
