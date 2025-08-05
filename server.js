@@ -12,9 +12,6 @@ const agent = (url) =>
     ? new https.Agent({ keepAlive: true })
     : new http.Agent({ keepAlive: true });
 
-// Cache leve em memória
-const cache = new Map();
-
 app.get("/proxy", async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send("URL não informada");
@@ -30,19 +27,6 @@ app.get("/proxy", async (req, res) => {
 
     const isM3U8 = targetUrl.endsWith(".m3u8");
 
-    // CACHE para .m3u8 (5 segundos)
-    if (isM3U8) {
-      const cached = cache.get(targetUrl);
-      const now = Date.now();
-
-      if (cached && now - cached.timestamp < 5000) {
-        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-        return res.status(200).send(cached.body);
-      }
-    }
-
     const response = await fetch(targetUrl, {
       headers,
       agent: agent(targetUrl),
@@ -54,30 +38,23 @@ app.get("/proxy", async (req, res) => {
         .send(`Erro ao buscar URL: ${response.status}`);
     }
 
-    // Manipula playlist .m3u8
     if (isM3U8) {
       let body = await response.text();
 
-      // Substitui URLs absolutas (https://...) por chamadas via proxy
-body = body.replace(
-  /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
-  (match) => `/proxy?url=${encodeURIComponent(match)}`
-);
+      // Substitui URLs absolutas por proxy
+      body = body.replace(
+        /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
+        (match) => `/proxy?url=${encodeURIComponent(match)}`
+      );
 
-// Substitui URLs relativas SEM quebrar a playlist
-body = body.replace(
-  /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
-  (match) => {
-    const absoluteUrl = new URL(match, targetUrl).toString();
-    return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-  }
-);
-
-      // Salva no cache
-      cache.set(targetUrl, {
-        body,
-        timestamp: Date.now(),
-      });
+      // Substitui URLs relativas sem quebrar a playlist
+      body = body.replace(
+        /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
+        (match) => {
+          const absoluteUrl = new URL(match, targetUrl).toString();
+          return `/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+        }
+      );
 
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
       res.setHeader("Access-Control-Allow-Origin", "*");
