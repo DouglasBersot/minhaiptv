@@ -36,19 +36,23 @@ app.get("/proxy", async (req, res) => {
     }
 
     const contentType = response.headers.get("content-type") || "";
+
+    // 🔒 CORS + No Cache
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
 
     if (targetUrl.endsWith(".m3u8")) {
       let body = await response.text();
 
-      // Reescreve URLs absolutas
+      // 🔄 Absolutas → proxy
       body = body.replace(
         /https?:\/\/[^\s"']+\.(ts|m3u8)(\?[^\s"']*)?/gi,
         (match) => `/proxy?url=${encodeURIComponent(match)}`
       );
 
-      // Reescreve URLs relativas
+      // 🔄 Relativas → proxy com base na URL
       body = body.replace(
         /^(?!#)([^:\s][^\s"']+\.(ts|m3u8)(\?[^\s"']*)?)$/gmi,
         (match) => {
@@ -61,17 +65,17 @@ app.get("/proxy", async (req, res) => {
       return res.status(200).send(body);
     }
 
-    // TS puro
+    // 🎞️ Segmentos .ts puros
     if (contentType.includes("video/MP2T") || targetUrl.endsWith(".ts")) {
       res.setHeader("Content-Type", "video/MP2T");
       return res.status(200).send(Buffer.from(await response.arrayBuffer()));
     }
 
-    // fallback
+    // 📦 Fallback genérico
     res.setHeader("Content-Type", contentType);
     return res.status(200).send(await response.buffer());
   } catch (err) {
-    console.error(err);
+    console.error("Erro interno no proxy:", err);
     return res.status(500).send("Erro interno no proxy");
   }
 });
