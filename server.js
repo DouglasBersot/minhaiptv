@@ -4,6 +4,15 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 🔁 Trata requisições pré-flight (CORS OPTIONS)
+app.options("/proxy", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.sendStatus(200);
+});
+
+// 🎯 Proxy principal
 app.get("/proxy", async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) return res.status(400).send("URL não informada");
@@ -20,11 +29,21 @@ app.get("/proxy", async (req, res) => {
 
     if (!response.ok) return res.status(response.status).send("Erro ao buscar");
 
-    // Repasse direto, sem reescrita
-    response.headers.forEach((value, key) => res.setHeader(key, value));
+    // Libera CORS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+    // Repassa headers da resposta original (evita sobrescrever CORS)
+    response.headers.forEach((value, key) => {
+      if (!["access-control-allow-origin", "access-control-allow-headers", "access-control-allow-methods"].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
+
     response.body.pipe(res);
   } catch (err) {
-    console.error(err);
+    console.error("Erro interno:", err);
     res.status(500).send("Erro interno");
   }
 });
